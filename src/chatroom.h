@@ -29,6 +29,7 @@ void PrintError(const char *format, ...);
 
 // Server
 int AcceptConnection(int sockfd);
+int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr);
 
 enum { kServer, kClient };
 

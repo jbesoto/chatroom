@@ -44,24 +44,10 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  sockfd = SetupServerSocket(port, &servaddr);
   if (sockfd < 0) {
-    PrintError("Failed to create socket: %s\n", strerror(errno));
+    PrintError("Failed to setup socket: %s\n", strerror(errno));
     return EXIT_FAILURE;
-  }
-
-  servaddr.sin_family = AF_INET;
-  servaddr.sin_port = htons(port);
-  servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-  if (bind(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-    PrintError("Failed to bind socket: %s\n", strerror(errno));
-    goto close_socket;
-  }
-
-  if (listen(sockfd, kMaxClients) < 0) {
-    PrintError("Failed to listen on socket: %s\n", strerror(errno));
-    goto close_socket;
   }
 
   fds[kServer].fd = STDIN_FILENO;
@@ -146,6 +132,33 @@ close_all:
 close_socket:
   close(sockfd);
   return EXIT_FAILURE;
+}
+
+// Returns the file descriptor of the created socket and updates the servaddr
+// structure with the information of the server... 
+int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr) {
+  int sockfd;
+  
+  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  if (sockfd < 0) {
+    return -1;
+  }
+
+  servaddr->sin_family = AF_INET;
+  servaddr->sin_port = htons(port);
+  servaddr->sin_addr.s_addr = htonl(INADDR_ANY);
+
+  if (bind(sockfd, (struct sockaddr *)servaddr, sizeof(*servaddr)) < 0) {
+    close(sockfd);
+    return -1;
+  }
+
+  if (listen(sockfd, kMaxClients) < 0) {
+    close(sockfd);
+    return -1;
+  }
+
+  return sockfd;
 }
 
 /**
