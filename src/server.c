@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
   in_port_t port;
   char *name;
   struct sockaddr_in servaddr;
-  struct pollfd fds[kChatCapacity];
+  struct pollfd fds[kMaxClients];
 
   if (argc > 2) {
     PrintUsage();
@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     goto close_socket;
   }
 
-  if (listen(sockfd, kQueueSize) < 0) {
+  if (listen(sockfd, kMaxClients) < 0) {
     PrintError("Failed to listen on socket: %s\n", strerror(errno));
     goto close_socket;
   }
@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
   fds[kServer].revents = 0;
 
   const size_t kPromptSize = kNameCharLimit + strlen(kPromptString);
-  const size_t kBufferSize = kCharLimit + kPromptSize + 1;
+  const size_t kBufferSize = kMessageCharLimit + kPromptSize + 1;
 
   for (int exit_flag = 0; ; ) {
     if (exit_flag) {
@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
       ssize_t msg_len;
       int events;
 
-      events = poll(fds, kChatCapacity, kTimeout);
+      events = poll(fds, kMaxClients, kTimeout);
       if (events < 0) {
         PrintError("Failed to poll: %s\n", strerror(errno));
         goto close_all;
@@ -167,7 +167,7 @@ int AcceptConnection(int sockfd) {
   size_t attempts;
   int connfd;
 
-  for (attempts = 0; attempts < kMaxRetryAttempts; attempts++) {
+  for (attempts = 0; attempts < kMaxConnectionAttempts; attempts++) {
     connfd = accept(sockfd, NULL, NULL);
     if (connfd >= 0) {
       break;
@@ -186,14 +186,14 @@ int AcceptConnection(int sockfd) {
         case EOPNOTSUPP:
         case ENETUNREACH:
           printf("Network error: %s. Retrying... (%ld/%ld)\n", strerror(errno),
-                 attempts, kMaxRetryAttempts);
+                 attempts, kMaxConnectionAttempts);
           continue;
         default:
           return -1;
       }
     }
   }
-  if (attempts >= kMaxRetryAttempts) {
+  if (attempts >= kMaxConnectionAttempts) {
     return -1;
   }
 

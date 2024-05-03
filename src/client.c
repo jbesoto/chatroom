@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
   int sockfd, status;
   char *name;
   in_port_t port;
-  struct pollfd fds[kChatCapacity];
+  struct pollfd fds[kMaxClients];
   struct addrinfo *res, hints;
   char port_str[6];
 
@@ -98,14 +98,14 @@ int main(int argc, char *argv[]) {
   fds[kServer].revents = 0;
 
   const size_t kPromptSize = kNameCharLimit + strlen(kPromptString);
-  const size_t kBufferSize = kCharLimit + kPromptSize + 1;
+  const size_t kBufferSize = kMessageCharLimit + kPromptSize + 1;
 
   while (1) {
     char buf[kBufferSize];
     ssize_t msg_len;
     int events;
 
-    events = poll(fds, kChatCapacity, kTimeout);
+    events = poll(fds, kMaxClients, kTimeout);
     if (events < 0) {
       PrintError("Failed to poll: %s\n", strerror(errno));
       goto close_socket;
