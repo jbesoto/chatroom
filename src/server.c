@@ -27,7 +27,6 @@
 int main(int argc, char *argv[]) {
   int sockfd, connfd;
   in_port_t port;
-  char *name;
   struct sockaddr_in servaddr;
   struct pollfd fds[kMaxClients];
 
@@ -112,7 +111,7 @@ int main(int argc, char *argv[]) {
       else if (fds[kServer].revents & POLLIN) {
         int prompt_len;
 
-        prompt_len = snprintf(buf, kPromptSize, "%s%s", name, kPromptString);
+        prompt_len = snprintf(buf, kPromptSize, "%s", kPromptString);
         if (prompt_len < 0) {
           PrintError("Failed to write prompt: %s\n", strerror(errno));
           goto close_all;
