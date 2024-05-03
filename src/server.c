@@ -31,22 +31,16 @@ int main(int argc, char *argv[]) {
   struct sockaddr_in servaddr;
   struct pollfd fds[kChatCapacity];
 
-  if (argc < 2 || argc > 3) {
+  if (argc > 2) {
     PrintUsage();
     return EXIT_FAILURE;
   }
 
-  if (strlen(argv[1]) > kNameCharLimit) {
-    PrintError("Name character limit exceeded (%s)\n", kNameCharLimit);
-    return EXIT_FAILURE;
-  }
-  name = argv[1];
-
   port = kDefaultPort;
   if (argc == 3) {
-    port = (in_port_t) strtol(argv[2], NULL, 10);
+    port = (in_port_t) strtol(argv[1], NULL, 10);
     if (port <= 0 || port > kMaxPort) {
-      PrintError("Invalid port number: %s\n", argv[2]);
+      PrintError("Invalid port number: %s\n", argv[1]);
       return EXIT_FAILURE;
     }
   }
@@ -210,10 +204,8 @@ int AcceptConnection(int sockfd) {
  * @brief Displays usage information for the client-side program.
 */
 void PrintUsage(void) {
-  fprintf(stderr, "Usage: server <NAME> [PORT]\n\n");
+  fprintf(stderr, "Usage: server [PORT]\n\n");
   fprintf(stderr, "Arguments:\n");
-  fprintf(stderr, "  %-12s%s\n", "NAME",
-          "Name to be displayed with each message");
   fprintf(stderr, "  %-12s%s\n", "PORT",
           "Port number that the server will be listening to");
 }
