@@ -42,9 +42,6 @@ typedef struct {
 void PrintUsage(void);
 void PrintError(const char *format, ...);
 
-// Client
-int ConnectServerSocket(in_port_t port, const char *node);
-
 // Server
 client_t *AcceptConnection(int sockfd);
 int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr);

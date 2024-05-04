@@ -267,12 +267,12 @@ void *HandleClient(void *arg) {
     
     msg[msg_len - 1] = '\0';
     printf("%s sent a message: %s\n", cli->name, msg);
+    memset(buf, 0, sizeof(buf));
     snprintf(buf, sizeof(buf), "%s%s%s\n", cli->name, kPromptString, msg);
     if (BroadcastMessage(buf, cli->uid) < 0) {
       PrintError("Failed to broadcast error: %s\n", strerror(errno));
       break;
     }
-    memset(buf, 0, sizeof(buf));
   }
 
 close_connection:

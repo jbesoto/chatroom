@@ -1,29 +1,72 @@
 # Chatroom
 
-## Requirements
+### Build
+```sh
+make
+```
 
-Write a chat room server and provide a corresponding client.
+### Usage
+1. Run the server:
 
-- The chat server's primary job is to pass messages from each client to all other current clients.
-- The server will need to:
-  - allow connections from clients.
-  - receive messages from clients
-  - send the messages to all current clients.
-  - Inform current clients when a client joins or leaves.
-- Note that the server is not a client!
+```
+./server [PORT]
+```
 
-### Notes
+Default port listening is `13000`. We will use for explanation purposes.
 
-- Please make sure everything about your server and clients can be set at start up from the command line. There should not be any additional interaction after starting the program to, for example, set up the network connections.
-- Each time a client connects to the server a new thread should be created in the server to handle the input from that client.
-- Each time a message is sent by a client, the message should be added to a queue.
-- A single separate thread should be responsible for removing the messages from the queue and sending them to the all of the clients. In terms of producers and consumers, there are as many producers as there are connected clients, and there is a single consumer.
-- Don't poll! If you can't have what you want right now, block. Someone else should "wake" you when what you want is available.
-- What happens when a thread is finished? Remember what happens when a process terminates? We have similar issues with threads...
-- The server should log (i.e. display to standard output) the connect / disconnect activities of the clients and report them to the clients for display to the users.
-- When a client logs in, he should be informed who else is currently logged in.
-- Current users should be informed when a user joins or leaves.
-- Note the main areas to watch for race conditions:
-  - Maintaining the collection of clients currently logged in.
-  - Maintaining the queue of messages to be sent out.
-- In order for the server to know that the client is "signing off", the client should send a message to the server saying so.
+2. Use `telnet` to connect:
+
+```
+telnet localhost 13000
+```
+
+1. Set name
+
+```
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+John
+```
+
+The server will record this event:
+
+```
+Client joined the chat: John
+```
+
+4. Send messages 
+
+Now that you have appropriately entered the name, you can send messages via Telnet
+
+5. Connecting another client
+
+Open another terminal and run steps 2 to 4.
+Upon connecting, the first client should get notified about this event.
+
+```
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+John
+
+=== Jane has joined the chat ===
+```
+
+6. Disconnect client
+
+To close telnet connection, run `Ctrl + ]`. This will open Telnet's command prompt. Type `quit`.
+```
+telnet> quit
+```
+
+The event will get logged in the server and a message will be broadcasted to other clients.
+
+```
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+Jane
+
+=== John has left the chat ===
+```
