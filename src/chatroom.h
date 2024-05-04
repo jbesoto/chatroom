@@ -42,12 +42,14 @@ void PrintUsage(void);
 void PrintError(const char *format, ...);
 
 // Server
-int AcceptConnection(int sockfd);
+int AcceptConnection(client_pool_t *pool, int sockfd);
 int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr);
 int BroadcastMessage(client_pool_t *pool, char *msg, int uid);
 void RemoveClient(client_pool_t *pool, int uid);
 int AddClient(client_pool_t *pool, client_t *cli);
 
 enum { kServer, kClient };
+
+enum { CHATROOM_SUCCESS = 0, CHATROOM_CAPACITY_REACHED };
 
 #endif  // CHATROOM_H_

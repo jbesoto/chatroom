@@ -25,10 +25,10 @@
  *         an error occurs.
  */
 int main(int argc, char *argv[]) {
-  int sockfd, connfd;
+  int sockfd;
   in_port_t port;
   struct sockaddr_in servaddr;
-  struct pollfd fds[kMaxClients];
+  pthread_t tid;
 
   if (argc > 2) {
     PrintUsage();
@@ -50,92 +50,100 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  // client_pool_t pool = {.clients = {NULL}, 
-  //                       .len = 0, 
-  //                       .mutex = PTHREAD_MUTEX_INITIALIZER};
+  client_pool_t pool = {.clients = {NULL}, 
+                        .len = 0, 
+                        .mutex = PTHREAD_MUTEX_INITIALIZER};
+  
+  while (1) {
+    int status;
+
+    status = AcceptConnection(&pool, sockfd);
+    if (status < 0) {
+      PrintError("Failed to accept connection: %s\n", strerror(errno));
+      continue;
+    }
+    else if (status == CHATROOM_CAPACITY_REACHED) {
+      puts("Chatroom capacity reached. Rejecting connection...");
+      continue;
+    }
+  }
+
+  // Cleanup
+  close(sockfd);
+  return EXIT_SUCCESS;
 
   // fds[kServer].fd = STDIN_FILENO;
   // fds[kServer].events = POLLIN;
   // fds[kServer].revents = 0;
 
-  const size_t kPromptSize = kNameCharLimit + strlen(kPromptString);
-  const size_t kBufferSize = kMessageCharLimit + kPromptSize + 1;
+  // const size_t kPromptSize = kNameCharLimit + strlen(kPromptString);
+  // const size_t kBufferSize = kMessageCharLimit + kPromptSize + 1;
 
-  for (int exit_flag = 0;;) {
-    if (exit_flag) {
-      break;
-    }
+  // for (int exit_flag = 0;;) {
+  //   if (exit_flag) {
+  //     break;
+  //   }
 
-    connfd = AcceptConnection(sockfd);
-    if (connfd < 0) {
-      PrintError("Failed to accept connection: %s\n", strerror(errno));
-      goto close_socket;
-    }
+  //   connfd = AcceptConnection(sockfd);
+  //   if (connfd < 0) {
+  //     PrintError("Failed to accept connection: %s\n", strerror(errno));
+  //     goto close_socket;
+  //   }
 
-    fds[kClient].fd = connfd;
-    fds[kClient].events = POLLIN;
-    fds[kClient].revents = 0;
+  //   fds[kClient].fd = connfd;
+  //   fds[kClient].events = POLLIN;
+  //   fds[kClient].revents = 0;
 
-    while (1) {
-      char buf[kBufferSize];
-      ssize_t msg_len;
-      int events;
+  //   while (1) {
+  //     char buf[kBufferSize];
+  //     ssize_t msg_len;
+  //     int events;
 
-      events = poll(fds, kMaxClients, kTimeout);
-      if (events < 0) {
-        PrintError("Failed to poll: %s\n", strerror(errno));
-        goto close_all;
-      }
+  //     events = poll(fds, kMaxClients, kTimeout);
+  //     if (events < 0) {
+  //       PrintError("Failed to poll: %s\n", strerror(errno));
+  //       goto close_all;
+  //     }
 
-      if (fds[kClient].revents & POLLIN) {
-        msg_len = recv(fds[kClient].fd, buf, sizeof(buf), 0);
-        if (msg_len < 0) {
-          PrintError("Failed to receive message: %s\n", strerror(errno));
-          goto close_all;
-        }
-        if (!msg_len) {
-          break;
-        }
-        printf("%s\n", buf);
-      }
-      else if (fds[kServer].revents & POLLIN) {
-        int prompt_len;
+  //     if (fds[kClient].revents & POLLIN) {
+  //       msg_len = recv(fds[kClient].fd, buf, sizeof(buf), 0);
+  //       if (msg_len < 0) {
+  //         PrintError("Failed to receive message: %s\n", strerror(errno));
+  //         goto close_all;
+  //       }
+  //       if (!msg_len) {
+  //         break;
+  //       }
+  //       printf("%s\n", buf);
+  //     }
+  //     else if (fds[kServer].revents & POLLIN) {
+  //       int prompt_len;
 
-        prompt_len = snprintf(buf, kPromptSize, "%s", kPromptString);
-        if (prompt_len < 0) {
-          PrintError("Failed to write prompt: %s\n", strerror(errno));
-          goto close_all;
-        }
+  //       prompt_len = snprintf(buf, kPromptSize, "%s", kPromptString);
+  //       if (prompt_len < 0) {
+  //         PrintError("Failed to write prompt: %s\n", strerror(errno));
+  //         goto close_all;
+  //       }
 
-        msg_len = read(fds[kServer].fd, buf + prompt_len, sizeof(buf));
-        if (msg_len < 0) {
-          PrintError("Failed to read input: %s\n", strerror(errno));
-          goto close_all;
-        }
-        if (!msg_len) {
-          exit_flag = 1;
-          break;
-        }
-        msg_len += prompt_len;
-        buf[msg_len - 1] = '\0';
+  //       msg_len = read(fds[kServer].fd, buf + prompt_len, sizeof(buf));
+  //       if (msg_len < 0) {
+  //         PrintError("Failed to read input: %s\n", strerror(errno));
+  //         goto close_all;
+  //       }
+  //       if (!msg_len) {
+  //         exit_flag = 1;
+  //         break;
+  //       }
+  //       msg_len += prompt_len;
+  //       buf[msg_len - 1] = '\0';
 
-        if (send(fds[kClient].fd, buf, kBufferSize, 0) < 0) {
-          PrintError("Failed to send message: %s\n", strerror(errno));
-          goto close_all;
-        }
-      }
-    }
-  }
-
-  close(connfd);
-  close(sockfd);
-  return EXIT_SUCCESS;
-
-close_all:
-  close(connfd);
-close_socket:
-  close(sockfd);
-  return EXIT_FAILURE;
+  //       if (send(fds[kClient].fd, buf, kBufferSize, 0) < 0) {
+  //         PrintError("Failed to send message: %s\n", strerror(errno));
+  //         goto close_all;
+  //       }
+  //     }
+  //   }
+  // }
 }
 
 // Returns the file descriptor of the created socket and updates the servaddr
@@ -163,23 +171,10 @@ int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr) {
   return sockfd;
 }
 
-/**
- * @brief Attempts to accept a new connection on the specified socket.
- *
- * This function tries to accept a new connection, handling potential network
- * errors and retrying a limited number of times before failing. It provides
- * detailed output in case of network issues that might temporarily prevent
- * connection acceptance.
- *
- * @param sockfd The socket file descriptor on which to accept the connection.
- *
- * @return Returns a new socket file descriptor for the accepted connection,
- *         or -1 if the connection attempt fails after retrying or due to
- *         non-recoverable errors.
- */
-int AcceptConnection(int sockfd) {
+int AcceptConnection(client_pool_t *pool, int sockfd) {
   size_t attempts;
   int connfd;
+  static int uid = 0;
 
   for (attempts = 0; attempts < kMaxConnectionAttempts; attempts++) {
     connfd = accept(sockfd, NULL, NULL);
@@ -211,7 +206,21 @@ int AcceptConnection(int sockfd) {
     return -1;
   }
 
-  return connfd;
+  client_t *client = malloc(sizeof(client_t));
+  if (!client) {
+    close(connfd);
+    return -1;
+  }
+  client->connfd = connfd;
+  client->uid = uid++;
+
+  if (AddClient(pool, client) < 0) {
+    free(client);
+    close(connfd);
+    return CHATROOM_CAPACITY_REACHED;
+  }
+
+  return 0;
 }
 
 int AddClient(client_pool_t *pool, client_t *cli) {
