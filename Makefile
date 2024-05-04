@@ -1,5 +1,5 @@
 CC=gcc
-FLAGS=-g3 -Wall -Wextra -Werror
+FLAGS=-g3 -Wall -Wextra -Werror -pthread -fsanitize=address,undefined
 
 all: client server
 

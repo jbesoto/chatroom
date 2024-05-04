@@ -25,6 +25,7 @@ const size_t kMaxConnectionAttempts = 5;
 const char *kPromptString = "> ";
 const in_port_t kMaxPort = 65535;
 const char *kDefaultHostname = "localhost";
+const char *kExitCommand = "/exit";
 
 typedef struct {
   int connfd;
@@ -41,15 +42,19 @@ typedef struct {
 void PrintUsage(void);
 void PrintError(const char *format, ...);
 
+// Client
+int ConnectServerSocket(in_port_t port, const char *node);
+
 // Server
-int AcceptConnection(client_pool_t *pool, int sockfd);
+client_t *AcceptConnection(int sockfd);
 int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr);
-int BroadcastMessage(client_pool_t *pool, char *msg, int uid);
-void RemoveClient(client_pool_t *pool, int uid);
-int AddClient(client_pool_t *pool, client_t *cli);
+int BroadcastMessage(char *msg, int uid);
+void RemoveClient(int uid);
+int AddClient(client_t *cli);
+void *HandleClient(void *arg);
 
 enum { kServer, kClient };
 
-enum { CHATROOM_SUCCESS = 0, CHATROOM_CAPACITY_REACHED };
+// enum { CHATROOM_CAPACITY_REACHED = 1 };
 
 #endif  // CHATROOM_H_

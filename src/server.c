@@ -9,20 +9,25 @@
 
 #include "chatroom.h"
 
+client_pool_t pool = {.clients = {NULL},
+                      .len = 0, 
+                      .mutex = PTHREAD_MUTEX_INITIALIZER};
+
 /**
- * @brief Initializes and runs the server for a chat application.
+ * @brief Entry point for the server program.
  *
- * Configures a server socket and binds it to a specified port. The server
- * listens for incoming connections and handles incoming messages in a loop
- * using poll. Manages connections, receives and sends messages, and performs
- * cleanup on errors or when terminated.
+ * Initializes the server on a specified or default port, manages client
+ * connections, and spawns threads for handling client communications. The
+ * server listens indefinitely until terminated manually. It handles incoming
+ * connections and manages a client pool, including thread creation for
+ * each client.
  *
- * @param argc Number of command-line arguments.
- * @param argv Array of command-line arguments: expected to contain the server
- *             name and optional port number.
+ * @param argc Number of command line arguments.
+ * @param argv Array of command line argument strings. Can optionally include
+ *             the port number as the first argument.
  *
- * @return Returns EXIT_SUCCESS on normal termination and EXIT_FAILURE when
- *         an error occurs.
+ * @return Returns EXIT_SUCCESS on orderly shutdown, or EXIT_FAILURE on error
+ *         or invalid input parameters.
  */
 int main(int argc, char *argv[]) {
   int sockfd;
@@ -50,104 +55,34 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  client_pool_t pool = {.clients = {NULL}, 
-                        .len = 0, 
-                        .mutex = PTHREAD_MUTEX_INITIALIZER};
-  
   while (1) {
-    int status;
+    client_t *client = AcceptConnection(sockfd);
+    if (!client) {
+      continue;
+    }
 
-    status = AcceptConnection(&pool, sockfd);
-    if (status < 0) {
-      PrintError("Failed to accept connection: %s\n", strerror(errno));
-      continue;
-    }
-    else if (status == CHATROOM_CAPACITY_REACHED) {
-      puts("Chatroom capacity reached. Rejecting connection...");
-      continue;
-    }
+    // TOOD: Add error checking
+    pthread_create(&tid, NULL, &HandleClient, (void *)client);
   }
 
-  // Cleanup
   close(sockfd);
   return EXIT_SUCCESS;
-
-  // fds[kServer].fd = STDIN_FILENO;
-  // fds[kServer].events = POLLIN;
-  // fds[kServer].revents = 0;
-
-  // const size_t kPromptSize = kNameCharLimit + strlen(kPromptString);
-  // const size_t kBufferSize = kMessageCharLimit + kPromptSize + 1;
-
-  // for (int exit_flag = 0;;) {
-  //   if (exit_flag) {
-  //     break;
-  //   }
-
-  //   connfd = AcceptConnection(sockfd);
-  //   if (connfd < 0) {
-  //     PrintError("Failed to accept connection: %s\n", strerror(errno));
-  //     goto close_socket;
-  //   }
-
-  //   fds[kClient].fd = connfd;
-  //   fds[kClient].events = POLLIN;
-  //   fds[kClient].revents = 0;
-
-  //   while (1) {
-  //     char buf[kBufferSize];
-  //     ssize_t msg_len;
-  //     int events;
-
-  //     events = poll(fds, kMaxClients, kTimeout);
-  //     if (events < 0) {
-  //       PrintError("Failed to poll: %s\n", strerror(errno));
-  //       goto close_all;
-  //     }
-
-  //     if (fds[kClient].revents & POLLIN) {
-  //       msg_len = recv(fds[kClient].fd, buf, sizeof(buf), 0);
-  //       if (msg_len < 0) {
-  //         PrintError("Failed to receive message: %s\n", strerror(errno));
-  //         goto close_all;
-  //       }
-  //       if (!msg_len) {
-  //         break;
-  //       }
-  //       printf("%s\n", buf);
-  //     }
-  //     else if (fds[kServer].revents & POLLIN) {
-  //       int prompt_len;
-
-  //       prompt_len = snprintf(buf, kPromptSize, "%s", kPromptString);
-  //       if (prompt_len < 0) {
-  //         PrintError("Failed to write prompt: %s\n", strerror(errno));
-  //         goto close_all;
-  //       }
-
-  //       msg_len = read(fds[kServer].fd, buf + prompt_len, sizeof(buf));
-  //       if (msg_len < 0) {
-  //         PrintError("Failed to read input: %s\n", strerror(errno));
-  //         goto close_all;
-  //       }
-  //       if (!msg_len) {
-  //         exit_flag = 1;
-  //         break;
-  //       }
-  //       msg_len += prompt_len;
-  //       buf[msg_len - 1] = '\0';
-
-  //       if (send(fds[kClient].fd, buf, kBufferSize, 0) < 0) {
-  //         PrintError("Failed to send message: %s\n", strerror(errno));
-  //         goto close_all;
-  //       }
-  //     }
-  //   }
-  // }
 }
 
-// Returns the file descriptor of the created socket and updates the servaddr
-// structure with the information of the server...
+/**
+ * @brief Sets up a server socket bound to the specified port.
+ *
+ * Creates a socket, binds it to the given port on the server's IP, and prepares
+ * it to listen for incoming connections. If any step fails, it returns -1 and
+ * closes the socket.
+ *
+ * @param port     The port number on which the server will listen.
+ * @param servaddr Pointer to a sockaddr_in structure where server address
+ *                 information will be stored.
+ *
+ * @return Returns the file descriptor of the created socket on success, or -1
+ *         if any step of setting up the socket fails.
+ */
 int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr) {
   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd < 0) {
@@ -171,7 +106,23 @@ int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr) {
   return sockfd;
 }
 
-int AcceptConnection(client_pool_t *pool, int sockfd) {
+/**
+ * @brief Attempts to accept a new client connection using the given socket.
+ *
+ * This function repeatedly tries to accept a new connection up to a maximum
+ * number of attempts. On success, it allocates a new client, assigns a unique
+ * ID, and attempts to add the client to the pool. If the pool is full or if
+ * any other error occurs during setup, it handles cleanup and reports the
+ * error appropriately.
+ *
+ * @param pool   Pointer to the client pool where the new client will be added.
+ * @param sockfd Server socket file descriptor used to accept new connections.
+ *
+ * @return Returns 0 on successful connection and client addition,
+ *         CHATROOM_CAPACITY_REACHED if the chatroom is full, or -1 on other
+ *         errors during connection acceptance or client setup.
+ */
+client_t *AcceptConnection(int sockfd) {
   size_t attempts;
   int connfd;
   static int uid = 0;
@@ -198,86 +149,203 @@ int AcceptConnection(client_pool_t *pool, int sockfd) {
                  attempts, kMaxConnectionAttempts);
           continue;
         default:
-          return -1;
+          return NULL;
       }
     }
   }
   if (attempts >= kMaxConnectionAttempts) {
-    return -1;
+    PrintError("Network error. Max retry attempts reached\n");
+    return NULL;
   }
 
   client_t *client = malloc(sizeof(client_t));
   if (!client) {
+    PrintError("Failed to allocate memory for client\n");
     close(connfd);
-    return -1;
+    return NULL;
   }
   client->connfd = connfd;
   client->uid = uid++;
 
-  if (AddClient(pool, client) < 0) {
+  if (AddClient(client) < 0) {
     free(client);
     close(connfd);
-    return CHATROOM_CAPACITY_REACHED;
+    PrintError("Chatroom capacity reached. Connection rejected\n");
+    return NULL;
   }
 
-  return 0;
+  return client;
 }
 
-int AddClient(client_pool_t *pool, client_t *cli) {
-  pthread_mutex_lock(&(pool->mutex));
+/**
+ * @brief Adds a new client to the client pool.
+ *
+ * Locks the pool mutex, checks for capacity, and adds the client to the pool
+ * if space is available. If the pool is full, it returns an error without
+ * adding the client.
+ *
+ * @param pool Pointer to the client pool to which the client will be added.
+ * @param cli  Pointer to the client to be added to the pool.
+ *
+ * @return Returns 0 on successful addition, or -1 if the pool is full.
+ */
+int AddClient(client_t *cli) {
+  pthread_mutex_lock(&(pool.mutex));
 
-  if (pool->len + 1 >= kMaxClients) {
-    pthread_mutex_unlock(&(pool->mutex));
+  if (pool.len + 1 >= kMaxClients) {
+    pthread_mutex_unlock(&(pool.mutex));
     return -1;
   }
-  pool->clients[pool->len] = cli;
-  pool->len++;
+  pool.clients[pool.len] = cli;
+  pool.len++;
 
-  pthread_mutex_unlock(&(pool->mutex));
+  pthread_mutex_unlock(&(pool.mutex));
 
   return 0;
 }
 
-void RemoveClient(client_pool_t *pool, int uid) {
-  pthread_mutex_lock(&(pool->mutex));
+/**
+ * @brief Handles client communications in a dedicated thread.
+ *
+ * Receives a client's name, broadcasts their joining message, then enters a
+ * loop to handle all incoming messages from this client. It broadcasts messages
+ * to all other clients and handles commands like "/exit". Cleans up and removes
+ * the client on disconnection.
+ *
+ * @param arg Pointer to a client_context_t struct containing the client and
+ *            pool data.
+ *
+ * @return Returns NULL after handling client disconnection and cleaning up.
+ */
+void *HandleClient(void *arg) {
+  char name[kNameCharLimit];
+  char msg[kMessageCharLimit];
+  char buf[strlen(kPromptString) + kNameCharLimit + kMessageCharLimit];
+  memset(buf, 0, sizeof(buf));
 
-  for (size_t i = 0; i < pool->len; i++) {
-    client_t *client = pool->clients[i];
+  client_t *cli = (client_t *)arg;
 
-    if (client && client->uid == uid) {
-      free(client);
-
-      // Eliminate gaps in client array
-      for (size_t j = i; j < pool->len - 1; j++) {
-        pool->clients[j] = pool->clients[j + 1];
-      }
-
-      pool->clients[pool->len - 1] = NULL;
-      pool->len--;
-      break;
-    }
+  // Set name
+  ssize_t name_len = recv(cli->connfd, name, kNameCharLimit - 1, 0); 
+  if (name_len <= 0) {
+    PrintError("Failed to receive client name: %s\n", strerror(errno));
+    goto close_connection;
+  }
+  memset(cli->name, 0, kNameCharLimit);
+  strncpy(cli->name, name, name_len);
+  cli->name[name_len - 1] = '\0';
+  
+  // Handle \r\n sent by telnet connections
+  if (cli->name[name_len - 2] == '\r') {
+    cli->name[name_len - 2] = '\0';
   }
 
-  pthread_mutex_unlock(&(pool->mutex));
+  // Broadcast welcome message
+  printf("Client joined the chat: %s\n", cli->name);
+  snprintf(buf, sizeof(buf), "\n=== %s has joined the chat ===\n", cli->name);
+  if (BroadcastMessage(buf, cli->uid) < 0) {
+    PrintError("Failed to broadcast message: %s\n", strerror(errno));
+    goto close_connection;
+  }
+
+  while (1) {
+    ssize_t msg_len;
+
+    msg_len = recv(cli->connfd, msg, kMessageCharLimit, 0);
+    if (msg_len < 0) {
+      PrintError("Failed to receive message: %s\n", strerror(errno));
+      break;
+    }
+    if (msg_len == 0 || strncmp(msg, kExitCommand, strlen(kExitCommand)) == 0) {
+      printf("Client left the chat: %s\n", cli->name);
+      snprintf(buf, sizeof(buf), "\n=== %s has left the chat ===\n", cli->name);
+      if (BroadcastMessage(buf, cli->uid) < 0) {
+        PrintError("Failed to broadcast message: %s\n", strerror(errno));
+      }
+      break;
+    }
+    
+    msg[msg_len - 1] = '\0';
+    printf("%s sent a message: %s\n", cli->name, msg);
+    snprintf(buf, sizeof(buf), "%s%s%s\n", cli->name, kPromptString, msg);
+    if (BroadcastMessage(buf, cli->uid) < 0) {
+      PrintError("Failed to broadcast error: %s\n", strerror(errno));
+      break;
+    }
+    memset(buf, 0, sizeof(buf));
+  }
+
+close_connection:
+  RemoveClient(cli->uid);
+  pthread_detach(pthread_self());
+
+  return NULL;
 }
 
-int BroadcastMessage(client_pool_t *pool, char *msg, int uid) {
-  pthread_mutex_lock(&(pool->mutex));
+/**
+ * @brief Broadcasts a message to all clients in the pool except the sender.
+ *
+ * Locks the pool mutex and iterates over all clients in the pool, sending
+ * the message to each client except the one identified by uid.
+ *
+ * @param pool Pointer to the client pool to which the message will be
+ *             broadcast.
+ * @param msg  The message to broadcast.
+ * @param uid  User ID of the sender.
+ *
+ * @return Returns 0 if the message was successfully sent to all other clients,
+ *         or -1 if an error occurred during sending.
+ */
+int BroadcastMessage(char *msg, int uid) {
+  pthread_mutex_lock(&(pool.mutex));
 
-  for (size_t i = 0; i < pool->len; i++) {
-    client_t *client = pool->clients[i];
+  for (size_t i = 0; i < pool.len; i++) {
+    client_t *client = pool.clients[i];
 
     if (client && client->uid != uid) {
-      if (send(client->connfd, msg, strlen(msg), 0) < 0) {
-        pthread_mutex_unlock(&(pool->mutex));
+      if (send(client->connfd, msg, kMessageCharLimit, 0) < 0) {
+        pthread_mutex_unlock(&(pool.mutex));
         return -1;
       }
     }
   }
 
-  pthread_mutex_unlock(&(pool->mutex));
+  pthread_mutex_unlock(&(pool.mutex));
 
   return 0;
+}
+
+/**
+ * @brief Removes a client from the client pool based on their unique ID.
+ *
+ * Locks the pool mutex, searches for the client by uid, and removes them.
+ * Compacts the client array to fill the gap left by the removed client.
+ *
+ * @param pool Pointer to the client pool from which the client will be removed.
+ * @param uid  User ID of the client to be removed.
+ */
+void RemoveClient(int uid) {
+  pthread_mutex_lock(&(pool.mutex));
+
+  for (size_t i = 0; i < pool.len; i++) {
+    client_t *client = pool.clients[i];
+
+    if (client && client->uid == uid) {
+      close(client->connfd);
+      free(client);
+
+      // Eliminate gaps in client array
+      for (size_t j = i; j < pool.len - 1; j++) {
+        pool.clients[j] = pool.clients[j + 1];
+      }
+
+      pool.clients[pool.len - 1] = NULL;
+      pool.len--;
+      break;
+    }
+  }
+
+  pthread_mutex_unlock(&(pool.mutex));
 }
 
 /**

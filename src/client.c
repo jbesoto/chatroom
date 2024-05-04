@@ -1,13 +1,7 @@
 /**
  * @file client.c
  *
- * @brief Client-side implementation for a chat application.
- *
- * This file contains the main program logic for the client side of a chat
- * application. It handles the initialization of network communication,
- * manages user input and server responses, and maintains the connection
- * to the chat server. The client uses TCP/IP for communication, handles
- * error reporting, and processes command-line arguments for configuration.
+ * @brief Client-side implementation for a chat room application.
  *
  * @author Juan Diego Becerra
  * @date   Apr 15, 2024
@@ -18,27 +12,25 @@
 #include "chatroom.h"
 
 /**
- * @brief Initializes and runs the client for a chat application.
+ * @brief Entry point of the client program which connects to a server, sends
+ * the client's name, and transmits messages.
  *
- * Sets up a socket connection using provided command-line arguments for 
- * hostname and port. The client then enters a loop to handle input from stdin
- * and from the server using poll. It manages connection setup, input/output
- * operations, and error handling throughout the runtime of the application.
+ * Handles command-line arguments to determine client's name and server details.
+ * Establishes connection using specified or default server and port. Sends the
+ * client's name and then enters a loop to send messages typed by the user,
+ * until
+ * '/exit' is typed. Exits if any step fails.
  *
  * @param argc Number of command-line arguments.
- * @param argv Array of command-line arguments: expected to contain the user's
- *             name, optional hostname/IP, and optional port number.
+ * @param argv Array of command-line arguments.
  *
- * @return Returns EXIT_SUCCESS upon successful operation and EXIT_FAILURE on
- *         error.
+ * @return Returns EXIT_SUCCESS on normal exit, or EXIT_FAILURE on any error
+ *         condition.
  */
 int main(int argc, char *argv[]) {
-  int sockfd, status;
+  int sockfd;
   char *name;
   in_port_t port;
-  struct pollfd fds[kMaxClients];
-  struct addrinfo *res, hints;
-  char port_str[6];
 
   if (argc < 2 || argc > 4) {
     PrintUsage();
@@ -55,14 +47,70 @@ int main(int argc, char *argv[]) {
 
   port = kDefaultPort;
   if (argc == 4) {
-    port = (in_port_t) strtol(argv[3], NULL, 10);
+    port = (in_port_t)strtol(argv[3], NULL, 10);
     if (port <= 0 || port > kMaxPort) {
       PrintError("Invalid port number: %s\n", argv[3]);
       return EXIT_FAILURE;
     }
   }
 
-  // String is required by getaddrinfo
+  sockfd = ConnectServerSocket(port, node);
+  if (sockfd < -1) {
+    return EXIT_FAILURE;
+  }
+
+  // Send name
+  if (send(sockfd, name, strlen(name), 0) < 0) {
+    PrintError("Failed to send name to server: %s\n", strerror(errno));
+    close(sockfd);
+    return EXIT_FAILURE;
+  }
+
+  while (1) {
+    char buf[kMessageCharLimit];
+
+    ssize_t msg_len = read(STDIN_FILENO, buf, kMessageCharLimit);
+    if (msg_len < 0) {
+      PrintError("Failed to read input: %s\n", strerror(errno));
+      close(sockfd);
+      return EXIT_FAILURE;
+    }
+
+    if (send(sockfd, buf, kMessageCharLimit, 0) < 0) {
+      PrintError("Failed to send message: %s\n", strerror(errno));
+      close(sockfd);
+      return EXIT_FAILURE;
+    }
+
+    if (strncmp(buf, kExitCommand, strlen(kExitCommand)) == 0) {
+      break;
+    }
+  }
+
+  close(sockfd);
+  return EXIT_SUCCESS;
+}
+
+/**
+ * @brief Establishes a client connection to a server using a specified port and
+ * node.
+ *
+ * This function resolves the server's hostname or IP address, creates a socket,
+ * and establishes a connection. It reports errors for any failure in these
+ * steps. It is meant to be used within network client implementations to handle
+ * initial server connection setup.
+ *
+ * @param port The port number to connect on.
+ * @param node The hostname or IP address of the server.
+ *
+ * @return Returns a socket file descriptor on success, or -1 on failure, with
+ *         an appropriate error printed.
+ */
+int ConnectServerSocket(in_port_t port, const char *node) {
+  int sockfd, status;
+  char port_str[6];
+  struct addrinfo *res, hints;
+
   snprintf(port_str, sizeof(port_str), "%d", port);
 
   memset(&hints, 0, sizeof(hints));
@@ -72,96 +120,30 @@ int main(int argc, char *argv[]) {
   status = getaddrinfo(node, port_str, &hints, &res);
   if (status != 0) {
     PrintError("Failed to resolve hostname/IP: %s\n", gai_strerror(status));
-    return EXIT_FAILURE;
+    return -1;
   }
 
   sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd < 0) {
     PrintError("Failed to create socket: %s\n", strerror(errno));
     freeaddrinfo(res);
-    return EXIT_FAILURE;
+    return -1;
   }
 
   if (connect(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
     PrintError("Failed to connect to socket: %s\n", strerror(errno));
     freeaddrinfo(res);
-    goto close_socket;
+    close(sockfd);
+    return -1;
   }
   freeaddrinfo(res);
 
-  fds[kClient].fd = STDIN_FILENO;
-  fds[kClient].events = POLLIN;
-  fds[kClient].revents = 0;
-
-  fds[kServer].fd = sockfd;
-  fds[kServer].events = POLLIN;
-  fds[kServer].revents = 0;
-
-  const size_t kPromptSize = kNameCharLimit + strlen(kPromptString);
-  const size_t kBufferSize = kMessageCharLimit + kPromptSize + 1;
-
-  while (1) {
-    char buf[kBufferSize];
-    ssize_t msg_len;
-    int events;
-
-    events = poll(fds, kMaxClients, kTimeout);
-    if (events < 0) {
-      PrintError("Failed to poll: %s\n", strerror(errno));
-      goto close_socket;
-    }
-    else if (!events) {
-      puts("Connection timeout. Exiting...");
-      break;
-    }
-
-    if (fds[kServer].revents & POLLIN) {
-      msg_len = recv(fds[kServer].fd, buf, sizeof(buf), 0);
-      if (msg_len < 0) {
-        PrintError("Failed to receive message: %s\n", strerror(errno));
-        goto close_socket;
-      } 
-      if (!msg_len) {
-        puts("Server exited. Exiting...");
-        break;
-      }
-      printf("%s\n", buf);
-    } 
-    else if (fds[kClient].revents & POLLIN) {
-      int prompt_len;
-
-      prompt_len = snprintf(buf, kPromptSize, "%s%s", name, kPromptString);
-      if (prompt_len < 0) {
-        PrintError("Failed to write prompt: %s\n", strerror(errno));
-        goto close_socket;
-      }
-
-      msg_len = read(fds[kClient].fd, buf + prompt_len, sizeof(buf));
-      if (msg_len < 0) {
-        PrintError("Failed to read input: %s\n", strerror(errno));
-        goto close_socket;
-      }
-      msg_len += prompt_len;
-      buf[msg_len - 1] = '\0';
-      
-      if (send(fds[kServer].fd, buf, kBufferSize, 0) < 0) {
-        PrintError("Failed to send message: %s\n", strerror(errno));
-        goto close_socket;
-      }
-    }
-  }
-
-  close(sockfd);
-  return EXIT_SUCCESS;
-
-close_socket:
-  close(sockfd);
-  return EXIT_FAILURE;
+  return sockfd;
 }
 
 /**
  * @brief Displays usage information for the client-side program.
-*/
+ */
 void PrintUsage(void) {
   fprintf(stderr, "Usage: client <NAME> [HOSTNAME|IP] [PORT]\n\n");
   fprintf(stderr, "Arguments:\n");
