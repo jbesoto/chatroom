@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
 
   port = kDefaultPort;
   if (argc == 3) {
-    port = (in_port_t) strtol(argv[1], NULL, 10);
+    port = (in_port_t)strtol(argv[1], NULL, 10);
     if (port <= 0 || port > kMaxPort) {
       PrintError("Invalid port number: %s\n", argv[1]);
       return EXIT_FAILURE;
@@ -50,14 +50,18 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  fds[kServer].fd = STDIN_FILENO;
-  fds[kServer].events = POLLIN;
-  fds[kServer].revents = 0;
+  // client_pool_t pool = {.clients = {NULL}, 
+  //                       .len = 0, 
+  //                       .mutex = PTHREAD_MUTEX_INITIALIZER};
+
+  // fds[kServer].fd = STDIN_FILENO;
+  // fds[kServer].events = POLLIN;
+  // fds[kServer].revents = 0;
 
   const size_t kPromptSize = kNameCharLimit + strlen(kPromptString);
   const size_t kBufferSize = kMessageCharLimit + kPromptSize + 1;
 
-  for (int exit_flag = 0; ; ) {
+  for (int exit_flag = 0;;) {
     if (exit_flag) {
       break;
     }
@@ -93,7 +97,7 @@ int main(int argc, char *argv[]) {
           break;
         }
         printf("%s\n", buf);
-      } 
+      }
       else if (fds[kServer].revents & POLLIN) {
         int prompt_len;
 
@@ -135,11 +139,9 @@ close_socket:
 }
 
 // Returns the file descriptor of the created socket and updates the servaddr
-// structure with the information of the server... 
+// structure with the information of the server...
 int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr) {
-  int sockfd;
-  
-  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd < 0) {
     return -1;
   }
@@ -212,9 +214,66 @@ int AcceptConnection(int sockfd) {
   return connfd;
 }
 
+int AddClient(client_pool_t *pool, client_t *cli) {
+  pthread_mutex_lock(&(pool->mutex));
+
+  if (pool->len + 1 >= kMaxClients) {
+    pthread_mutex_unlock(&(pool->mutex));
+    return -1;
+  }
+  pool->clients[pool->len] = cli;
+  pool->len++;
+
+  pthread_mutex_unlock(&(pool->mutex));
+
+  return 0;
+}
+
+void RemoveClient(client_pool_t *pool, int uid) {
+  pthread_mutex_lock(&(pool->mutex));
+
+  for (size_t i = 0; i < pool->len; i++) {
+    client_t *client = pool->clients[i];
+
+    if (client && client->uid == uid) {
+      free(client);
+
+      // Eliminate gaps in client array
+      for (size_t j = i; j < pool->len - 1; j++) {
+        pool->clients[j] = pool->clients[j + 1];
+      }
+
+      pool->clients[pool->len - 1] = NULL;
+      pool->len--;
+      break;
+    }
+  }
+
+  pthread_mutex_unlock(&(pool->mutex));
+}
+
+int BroadcastMessage(client_pool_t *pool, char *msg, int uid) {
+  pthread_mutex_lock(&(pool->mutex));
+
+  for (size_t i = 0; i < pool->len; i++) {
+    client_t *client = pool->clients[i];
+
+    if (client && client->uid != uid) {
+      if (send(client->connfd, msg, strlen(msg), 0) < 0) {
+        pthread_mutex_unlock(&(pool->mutex));
+        return -1;
+      }
+    }
+  }
+
+  pthread_mutex_unlock(&(pool->mutex));
+
+  return 0;
+}
+
 /**
  * @brief Displays usage information for the client-side program.
-*/
+ */
 void PrintUsage(void) {
   fprintf(stderr, "Usage: server [PORT]\n\n");
   fprintf(stderr, "Arguments:\n");
