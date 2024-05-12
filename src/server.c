@@ -115,12 +115,10 @@ int SetupServerSocket(in_port_t port, struct sockaddr_in *servaddr) {
  * any other error occurs during setup, it handles cleanup and reports the
  * error appropriately.
  *
- * @param pool   Pointer to the client pool where the new client will be added.
  * @param sockfd Server socket file descriptor used to accept new connections.
  *
- * @return Returns 0 on successful connection and client addition,
- *         CHATROOM_CAPACITY_REACHED if the chatroom is full, or -1 on other
- *         errors during connection acceptance or client setup.
+ * @return Returns a pointer to the allocated client on successful connection
+ *         and client addition, otherwise return NULL.
  */
 client_t *AcceptConnection(int sockfd) {
   size_t attempts;
@@ -184,7 +182,6 @@ client_t *AcceptConnection(int sockfd) {
  * if space is available. If the pool is full, it returns an error without
  * adding the client.
  *
- * @param pool Pointer to the client pool to which the client will be added.
  * @param cli  Pointer to the client to be added to the pool.
  *
  * @return Returns 0 on successful addition, or -1 if the pool is full.
@@ -288,8 +285,6 @@ close_connection:
  * Locks the pool mutex and iterates over all clients in the pool, sending
  * the message to each client except the one identified by uid.
  *
- * @param pool Pointer to the client pool to which the message will be
- *             broadcast.
  * @param msg  The message to broadcast.
  * @param uid  User ID of the sender.
  *
@@ -321,7 +316,6 @@ int BroadcastMessage(char *msg, int uid) {
  * Locks the pool mutex, searches for the client by uid, and removes them.
  * Compacts the client array to fill the gap left by the removed client.
  *
- * @param pool Pointer to the client pool from which the client will be removed.
  * @param uid  User ID of the client to be removed.
  */
 void RemoveClient(int uid) {
